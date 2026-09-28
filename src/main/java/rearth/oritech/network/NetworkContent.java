@@ -1,6 +1,7 @@
 package rearth.oritech.network;
 
 import io.wispforest.owo.network.OwoNetChannel;
+import io.wispforest.owo.serialization.annotations.NullableComponent;
 import io.wispforest.owo.serialization.endec.ReflectiveEndecBuilder;
 import net.fabricmc.fabric.api.transfer.v1.fluid.FluidVariant;
 import net.minecraft.item.ItemStack;
@@ -29,8 +30,10 @@ public class NetworkContent {
     public static final OwoNetChannel UI_CHANNEL = OwoNetChannel.create(new Identifier(Oritech.MOD_ID, "ui_interactions"));
     
     // Server -> Client
+    // the active recipe is sent as its recipe id when the client has it, as full recipe otherwise, and as neither for OritechRecipe.DUMMY
     public record MachineSyncPacket(BlockPos position, long energy, long maxEnergy, long maxInsert, int progress,
-                                    OritechRecipe activeRecipe, InventoryInputMode inputMode) {
+                                    @NullableComponent Identifier activeRecipeId, @NullableComponent OritechRecipe activeRecipe,
+                                    InventoryInputMode inputMode) {
     }
     
     // Client -> Server (e.g. from UI interactions

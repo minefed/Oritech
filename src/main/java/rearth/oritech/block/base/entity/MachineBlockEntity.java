@@ -21,6 +21,7 @@ import net.minecraft.screen.ScreenHandler;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.state.property.Properties;
 import net.minecraft.text.Text;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.world.World;
@@ -56,6 +57,9 @@ public abstract class MachineBlockEntity extends BlockEntity
     private final AnimationController<MachineBlockEntity> animationController = getAnimationController();
     protected int energyPerTick;
     protected OritechRecipe currentRecipe = OritechRecipe.DUMMY;
+    // recipe manager id of currentRecipe (server only), used to sync the recipe by id instead of the full recipe
+    @Nullable
+    protected Identifier currentRecipeId;
     protected InventoryInputMode inventoryInputMode = InventoryInputMode.FILL_LEFT_TO_RIGHT;
     // network state
     protected boolean networkDirty = true;
@@ -87,6 +91,7 @@ public abstract class MachineBlockEntity extends BlockEntity
             if (hasEnoughEnergy()) {
                 var activeRecipe = recipeCandidate.get().value();
                 currentRecipe = activeRecipe;
+                currentRecipeId = recipeCandidate.get().id();
                 
                 // check energy
                 useEnergy();
@@ -153,7 +158,20 @@ public abstract class MachineBlockEntity extends BlockEntity
     }
     
     protected void sendNetworkEntry() {
-        NetworkContent.MACHINE_CHANNEL.serverHandle(this).send(new NetworkContent.MachineSyncPacket(getPos(), energyStorage.amount, energyStorage.capacity, energyStorage.maxInsert, progress, currentRecipe, inventoryInputMode));
+        // the client has all recipes of the recipe manager, so only the id is sent when currentRecipe is exactly the recipe registered under that id.
+        // The dummy recipe is sent as no id and no recipe. Anything else is sent in full, as before.
+        Identifier syncedRecipeId = null;
+        OritechRecipe syncedRecipe = null;
+        if (currentRecipe != OritechRecipe.DUMMY) {
+            var registeredEntry = currentRecipeId == null ? null : Objects.requireNonNull(world).getRecipeManager().get(currentRecipeId).orElse(null);
+            if (registeredEntry != null && registeredEntry.value() == currentRecipe) {
+                syncedRecipeId = currentRecipeId;
+            } else {
+                syncedRecipe = currentRecipe;
+            }
+        }
+        
+        NetworkContent.MACHINE_CHANNEL.serverHandle(this).send(new NetworkContent.MachineSyncPacket(getPos(), energyStorage.amount, energyStorage.capacity, energyStorage.maxInsert, progress, syncedRecipeId, syncedRecipe, inventoryInputMode));
         networkDirty = false;
     }
     
@@ -164,8 +182,18 @@ public abstract class MachineBlockEntity extends BlockEntity
         this.setEnergyStored(message.energy());
         this.energyStorage.maxInsert = message.maxInsert();
         this.energyStorage.capacity = message.maxEnergy();
-        this.setCurrentRecipe(message.activeRecipe());
+        this.setCurrentRecipe(resolveSyncedRecipe(message));
         this.setInventoryInputMode(message.inputMode());
+    }
+    
+    private OritechRecipe resolveSyncedRecipe(NetworkContent.MachineSyncPacket message) {
+        if (message.activeRecipe() != null) return message.activeRecipe();
+        if (message.activeRecipeId() == null) return OritechRecipe.DUMMY;
+        
+        // recipes are synced to the client by the recipe manager, so this is only missing if the client recipes are out of sync
+        var entry = Objects.requireNonNull(world).getRecipeManager().get(message.activeRecipeId());
+        if (entry.isPresent() && entry.get().value() instanceof OritechRecipe recipe) return recipe;
+        return OritechRecipe.DUMMY;
     }
     
     public List<ItemStack> getCraftingResults(OritechRecipe activeRecipe) {

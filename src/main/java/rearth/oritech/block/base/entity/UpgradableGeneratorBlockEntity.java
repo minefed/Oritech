@@ -100,6 +100,7 @@ public abstract class UpgradableGeneratorBlockEntity extends UpgradableMachineBl
             // this is separate so that progress is not reset when out of energy
             var activeRecipe = recipeCandidate.get().value();
             currentRecipe = activeRecipe;
+            currentRecipeId = recipeCandidate.get().id();
             
             // speed -> lower = faster, efficiency -> lower = better
             var recipeTime = (int) (currentRecipe.getTime() * getSpeedMultiplier() * (1 / getEfficiencyMultiplier()));
