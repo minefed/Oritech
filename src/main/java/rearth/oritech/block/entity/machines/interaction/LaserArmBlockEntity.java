@@ -39,6 +39,7 @@ import rearth.oritech.block.entity.machines.MachineCoreEntity;
 import rearth.oritech.block.entity.machines.processing.AtomicForgeBlockEntity;
 import rearth.oritech.client.init.ModScreens;
 import rearth.oritech.client.init.ParticleContent;
+import rearth.oritech.client.ui.BasicMachineScreenHandler;
 import rearth.oritech.client.ui.UpgradableMachineScreenHandler;
 import rearth.oritech.init.BlockContent;
 import rearth.oritech.init.BlockEntitiesContent;
@@ -172,7 +173,7 @@ public class LaserArmBlockEntity extends BlockEntity implements GeoBlockEntity, 
         }
         
         if (networkDirty)
-            updateNetwork();
+            updateNetwork(false);
         
     }
     
@@ -320,10 +321,20 @@ public class LaserArmBlockEntity extends BlockEntity implements GeoBlockEntity, 
         return (int) (Oritech.CONFIG.laserArmConfig.energyPerTick() * (1 / addonData.speed()));
     }
     
-    private void updateNetwork() {
+    private void updateNetwork(boolean forceEnergySync) {
         NetworkContent.MACHINE_CHANNEL.serverHandle(this).send(new NetworkContent.LaserArmSyncPacket(pos, currentTarget, lastFiredAt, areaSize));
-        NetworkContent.MACHINE_CHANNEL.serverHandle(this).send(new NetworkContent.GenericEnergySyncPacket(pos, energyStorage.amount, energyStorage.capacity));
+        // energy is only displayed in the screen, so it's synced like other machines: every tick while the screen is open, otherwise every 5 ticks
+        if (forceEnergySync || Objects.requireNonNull(world).getTime() % 5 == 0 || isScreenOpen())
+            NetworkContent.MACHINE_CHANNEL.serverHandle(this).send(new NetworkContent.GenericEnergySyncPacket(pos, energyStorage.amount, energyStorage.capacity));
         networkDirty = false;
+    }
+    
+    private boolean isScreenOpen() {
+        for (var player : Objects.requireNonNull(world).getPlayers()) {
+            if (player.currentScreenHandler instanceof BasicMachineScreenHandler handler && pos.equals(handler.getBlockPos()))
+                return true;
+        }
+        return false;
     }
     
     public boolean setTargetFromDesignator(BlockPos targetPos) {
@@ -670,7 +681,7 @@ public class LaserArmBlockEntity extends BlockEntity implements GeoBlockEntity, 
         buf.writeBlockPos(this.getPos());
         buf.write(ADDON_UI_ENDEC, getUiData());
         buf.writeFloat(getCoreQuality());
-        updateNetwork();
+        updateNetwork(true);
     }
     
     @Nullable
