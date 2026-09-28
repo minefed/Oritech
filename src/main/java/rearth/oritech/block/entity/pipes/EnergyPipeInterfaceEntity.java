@@ -22,7 +22,13 @@ import java.util.stream.Collectors;
 
 public class EnergyPipeInterfaceEntity extends GenericPipeInterfaceEntity implements EnergyProvider {
     
-    private final SimpleEnergyStorage energyStorage = new SimpleEnergyStorage(Oritech.CONFIG.energyPipeTransferRate(), Oritech.CONFIG.energyPipeTransferRate(), Oritech.CONFIG.energyPipeTransferRate());
+    private final SimpleEnergyStorage energyStorage = new SimpleEnergyStorage(Oritech.CONFIG.energyPipeTransferRate(), Oritech.CONFIG.energyPipeTransferRate(), Oritech.CONFIG.energyPipeTransferRate()) {
+        @Override
+        protected void onFinalCommit() {
+            super.onFinalCommit();
+            EnergyPipeInterfaceEntity.this.markDirty();
+        }
+    };
     private final HashMap<BlockPos, BlockApiCache<EnergyStorage, Direction>> lookupCache = new HashMap<>();
     
     public EnergyPipeInterfaceEntity(BlockPos pos, BlockState state) {
@@ -55,7 +61,8 @@ public class EnergyPipeInterfaceEntity extends GenericPipeInterfaceEntity implem
         
         if (world.isClient || energyStorage.getAmount() <= 0) return;
         
-        var data = EnergyPipeBlock.ENERGY_PIPE_DATA.getOrDefault(world.getRegistryKey().getValue(), new PipeNetworkData());
+        var data = EnergyPipeBlock.ENERGY_PIPE_DATA.get(world.getRegistryKey().getValue());
+        if (data == null) return;   // no network data yet, so there are no targets
         var targets = findNetworkTargets(pos, data);
         
         var energyStorages = targets.stream()
@@ -78,8 +85,7 @@ public class EnergyPipeInterfaceEntity extends GenericPipeInterfaceEntity implem
             tx.commit();
         }
         
-        markDirty();
-        
+        // markDirty is called by the storage whenever the stored amount changes
     }
     
     private EnergyStorage findFromCache(World world, BlockPos pos, Direction direction) {
