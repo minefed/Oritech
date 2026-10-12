@@ -130,6 +130,9 @@ sourceSets {
     frameGuiVerification {
         java.srcDir 'src/frameGuiVerification/java'
     }
+    inventoryVerification {
+        java.srcDir 'src/inventoryVerification/java'
+    }
 }
 
 tasks.named('compileFrameGuiVerificationJava', JavaCompile) {
@@ -153,6 +156,61 @@ tasks.register('verifyFrameGuiSync', JavaExec) {
 
 tasks.named('check') {
     dependsOn tasks.named('verifyFrameGuiSync')
+}
+
+def inventoryBaselineOutput = layout.buildDirectory.dir('generated/inventoryVerification')
+def generateInventoryBaseline = tasks.register('generateInventoryBaseline') {
+    inputs.dir 'src/inventoryVerification/baseline'
+    outputs.dir inventoryBaselineOutput
+    doLast {
+        def names = [
+            'MachineBlockEntity': 'rearth/oritech/block/base/entity',
+            'PoweredFurnaceBlockEntity': 'rearth/oritech/block/entity/machines/processing'
+        ]
+        names.each { name, packagePath ->
+            def target = inventoryBaselineOutput.get().file("${packagePath}/Legacy${name}.java").asFile
+            target.parentFile.mkdirs()
+            target.text = file("src/inventoryVerification/baseline/${name}.java.txt").getText('UTF-8')
+                .replace('MachineBlockEntity', 'LegacyMachineBlockEntity')
+                .replace('PoweredFurnaceBlockEntity', 'LegacyPoweredFurnaceBlockEntity')
+                .replace('MultiblockMachineEntity', 'LegacyMultiblockMachineEntity')
+        }
+    }
+}
+
+tasks.named('compileInventoryVerificationJava', JavaCompile) {
+    dependsOn generateInventoryBaseline
+    source inventoryBaselineOutput
+    source fileTree('src/frameGuiVerification/java') {
+        exclude 'rearth/oritech/verification/**', 'rearth/oritech/network/NetworkContent.java'
+        exclude 'rearth/oritech/Oritech.java', 'rearth/oritech/client/init/ModScreens.java', 'rearth/oritech/init/BlockEntitiesContent.java'
+        exclude 'net/minecraft/world/World.java', 'net/minecraft/inventory/Inventory.java', 'net/minecraft/inventory/SimpleInventory.java'
+        exclude 'net/minecraft/item/ItemStack.java', 'net/minecraft/block/BlockState.java', 'net/minecraft/util/math/Direction.java'
+        exclude 'net/minecraft/util/collection/DefaultedList.java', 'net/minecraft/nbt/NbtCompound.java'
+        exclude 'rearth/oritech/util/InventoryInputMode.java'
+        exclude 'rearth/oritech/client/ui/UpgradableMachineScreenHandler.java'
+    }
+    source files(
+        'src/main/java/rearth/oritech/block/base/entity/MachineBlockEntity.java',
+        'src/main/java/rearth/oritech/block/entity/machines/processing/PoweredFurnaceBlockEntity.java',
+        'src/main/java/rearth/oritech/init/recipes/OritechRecipe.java',
+        'src/main/java/rearth/oritech/util/InventorySlotAssignment.java',
+        'src/main/java/rearth/oritech/util/MachineInventorySnapshot.java',
+        'src/main/java/rearth/oritech/client/ui/BasicMachineScreenHandler.java'
+    )
+}
+
+tasks.register('verifyMachineInventorySnapshots', JavaExec) {
+    group = 'verification'
+    description = 'Compares production machine inventory operations with frozen integration baseline sources.'
+    dependsOn tasks.named('compileInventoryVerificationJava')
+    classpath = sourceSets.inventoryVerification.runtimeClasspath
+    mainClass = 'rearth.oritech.verification.MachineInventoryVerification'
+    maxHeapSize = '192m'
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('verifyMachineInventorySnapshots')
 }
 
 jar {

@@ -19,7 +19,6 @@ import rearth.oritech.init.recipes.RecipeContent;
 import rearth.oritech.util.InventorySlotAssignment;
 
 import java.util.List;
-import java.util.Objects;
 
 public class PoweredFurnaceBlockEntity extends MultiblockMachineEntity {
     
@@ -49,7 +48,7 @@ public class PoweredFurnaceBlockEntity extends MultiblockMachineEntity {
         
         if (world.isClient || !isActive(state)) return;
         
-        var recipeCandidate = world.getRecipeManager().getFirstMatch(RecipeType.SMELTING, getInputInventory(), world);
+        var recipeCandidate = findInputRecipe(RecipeType.SMELTING);
         
         if (recipeCandidate.isPresent() && canAddToSlot(recipeCandidate.get().value().getResult(world.getRegistryManager()), inventory.heldStacks.get(1))) {
             if (hasEnoughEnergy()) {
@@ -102,7 +101,7 @@ public class PoweredFurnaceBlockEntity extends MultiblockMachineEntity {
     public float getProgress() {
         if (progress == 0) return 0;
         
-        var recipeCandidate = Objects.requireNonNull(world).getRecipeManager().getFirstMatch(RecipeType.SMELTING, getInputInventory(), world);
+        var recipeCandidate = findInputRecipe(RecipeType.SMELTING);
         if (recipeCandidate.isPresent()) {
             return (float) progress / getRecipeDuration();
         }
@@ -113,7 +112,7 @@ public class PoweredFurnaceBlockEntity extends MultiblockMachineEntity {
     @SuppressWarnings("OptionalIsPresent")
     @Override
     protected int getRecipeDuration() {
-        var recipeCandidate = Objects.requireNonNull(world).getRecipeManager().getFirstMatch(RecipeType.SMELTING, getInputInventory(), world);
+        var recipeCandidate = findInputRecipe(RecipeType.SMELTING);
         if (recipeCandidate.isPresent()) {
             return (int) (recipeCandidate.get().value().getCookingTime() * getSpeedMultiplier());
         }

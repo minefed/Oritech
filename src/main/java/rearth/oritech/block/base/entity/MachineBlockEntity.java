@@ -17,6 +17,10 @@ import net.minecraft.nbt.NbtCompound;
 import net.minecraft.network.PacketByteBuf;
 import net.minecraft.recipe.Ingredient;
 import net.minecraft.recipe.RecipeEntry;
+import net.minecraft.recipe.Recipe;
+import net.minecraft.recipe.RecipeManager;
+import net.minecraft.recipe.RecipeType;
+import net.minecraft.recipe.SmeltingRecipe;
 import net.minecraft.screen.ScreenHandler;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.state.property.Properties;
@@ -41,6 +45,7 @@ import software.bernie.geckolib.util.GeckoLibUtil;
 import team.reborn.energy.api.EnergyStorage;
 
 import java.util.*;
+import java.lang.ref.WeakReference;
 
 public abstract class MachineBlockEntity extends BlockEntity
   implements ExtendedScreenHandlerFactory, GeoBlockEntity, EnergyProvider, ScreenProvider, InventoryProvider, BlockEntityTicker<MachineBlockEntity> {
@@ -52,6 +57,9 @@ public abstract class MachineBlockEntity extends BlockEntity
     public static final RawAnimation WORKING = RawAnimation.begin().thenLoop("working");
     protected final AnimatableInstanceCache animatableInstanceCache = GeckoLibUtil.createInstanceCache(this);
     public final SimpleInventory inventory = new SimpleMachineInventory(getInventorySize());
+    private final MachineInventorySnapshot inputSnapshot = new MachineInventorySnapshot();
+    private final MachineInventorySnapshot outputSnapshot = new MachineInventorySnapshot();
+    private RecipeSnapshotEligibility recipeSnapshotEligibility;
     // crafting / processing
     protected int progress;
     private final AnimationController<MachineBlockEntity> animationController = getAnimationController();
@@ -240,8 +248,18 @@ public abstract class MachineBlockEntity extends BlockEntity
     
     // check if output slots are valid, meaning: each slot is either empty, or of the same type and can add the target amount without overfilling
     private boolean canOutputRecipe(OritechRecipe recipe) {
-        
-        var outInv = getOutputInventory();
+        if (!SNAPSHOT_PATHS.get(getClass()).output() || outputSnapshot.isBorrowed()) return canOutputRecipe(recipe, getOutputInventory());
+        var slots = getSlots();
+        var reusable = outputSnapshot.borrow(inventory.heldStacks, slots.outputStart(), slots.outputCount());
+        if (reusable == null) return canOutputRecipe(recipe, getOutputInventory());
+        try {
+            return canOutputRecipe(recipe, reusable);
+        } finally {
+            outputSnapshot.release();
+        }
+    }
+
+    private boolean canOutputRecipe(OritechRecipe recipe, Inventory outInv) {
         
         if (outInv.isEmpty()) return true;
         
@@ -266,8 +284,68 @@ public abstract class MachineBlockEntity extends BlockEntity
     }
     
     protected Optional<RecipeEntry<OritechRecipe>> getRecipe() {
-        return Objects.requireNonNull(world).getRecipeManager().getFirstMatch(getOwnRecipeType(), getInputInventory(), world);
+        var manager = Objects.requireNonNull(world).getRecipeManager();
+        return findInputRecipe(manager, getOwnRecipeType());
     }
+
+    /** Reuses a detached snapshot only for synchronous, non-retaining recipe implementations. */
+    protected <T extends Recipe<Inventory>> Optional<RecipeEntry<T>> findInputRecipe(RecipeType<T> type) {
+        var manager = Objects.requireNonNull(world).getRecipeManager();
+        return findInputRecipe(manager, type);
+    }
+
+    private <T extends Recipe<Inventory>> Optional<RecipeEntry<T>> findInputRecipe(RecipeManager manager, RecipeType<T> type) {
+        if (!SNAPSHOT_PATHS.get(getClass()).input() || inputSnapshot.isBorrowed() || !canReuseRecipeSnapshot(manager, type))
+            return manager.getFirstMatch(type, getInputInventory(), world);
+        var slots = getSlots();
+        var reusable = inputSnapshot.borrow(inventory.heldStacks, slots.inputStart(), slots.inputCount());
+        if (reusable == null) return manager.getFirstMatch(type, getInputInventory(), world);
+        try {
+            return manager.getFirstMatch(type, reusable, world);
+        } finally {
+            inputSnapshot.release();
+        }
+    }
+
+    private <T extends Recipe<Inventory>> boolean canReuseRecipeSnapshot(RecipeManager manager, RecipeType<T> type) {
+        if (manager.getClass() != RecipeManager.class) return false;
+        var entries = manager.getAllOfType(type);
+        var previous = recipeSnapshotEligibility;
+        if (previous != null && previous.manager().get() == manager && previous.type() == type
+          && previous.entries().get() == entries) return previous.reusable();
+        boolean reusable = true;
+        for (var entry : entries.values()) {
+            var recipeClass = entry.value().getClass();
+            if (recipeClass != OritechRecipe.class && recipeClass != SmeltingRecipe.class) {
+                reusable = false;
+                break;
+            }
+        }
+        recipeSnapshotEligibility = new RecipeSnapshotEligibility(new WeakReference<>(manager), type,
+          new WeakReference<>(entries), reusable);
+        return reusable;
+    }
+
+    private record RecipeSnapshotEligibility(WeakReference<RecipeManager> manager, RecipeType<?> type,
+                                             WeakReference<?> entries, boolean reusable) {}
+
+    private record SnapshotPaths(boolean input, boolean output) {}
+
+    // Preserve extension points: custom snapshot getters or list views keep their original path.
+    private static final ClassValue<SnapshotPaths> SNAPSHOT_PATHS = new ClassValue<>() {
+        @Override
+        protected SnapshotPaths computeValue(Class<?> type) {
+            boolean input = true, output = true;
+            for (var current = type; current != MachineBlockEntity.class; current = current.getSuperclass()) {
+                for (var method : current.getDeclaredMethods()) {
+                    if (method.getParameterCount() != 0) continue;
+                    if (method.getName().equals("getInputInventory") || method.getName().equals("getInputView")) input = false;
+                    if (method.getName().equals("getOutputInventory") || method.getName().equals("getOutputView")) output = false;
+                }
+            }
+            return new SnapshotPaths(input, output);
+        }
+    };
     
     protected abstract OritechRecipeType getOwnRecipeType();
     
