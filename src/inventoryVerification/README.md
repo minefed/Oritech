@@ -13,6 +13,9 @@ The baseline is integration commit
 `a6c9c79ecf58430bdc1ead54b9d03aadd22302fc`. The `.java.txt` copies have the exact
 same Git blob IDs as that commit:
 
+The archival files preserve original trailing whitespace and use LF checkouts;
+their narrow Git attribute rule keeps byte-exact comparisons reproducible.
+
 | File | Git blob | SHA-256 |
 | --- | --- | --- |
 | MachineBlockEntity.java | `6277898cb37bb86cfbfc6b3eacb8d80b9528129b` | `a535c0070ed5023f3d5fe38b01490e2214bb8417727aca472b8215db4b99454c` |

@@ -1,0 +1,2 @@
+# Preserve the archived integration sources for exact baseline blob comparisons.
+src/inventoryVerification/baseline/*.java.txt text eol=lf whitespace=-blank-at-eol
