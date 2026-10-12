@@ -1,0 +1,2 @@
+package rearth.oritech.util;
+public enum InventoryInputMode { FILL_LEFT_TO_RIGHT }

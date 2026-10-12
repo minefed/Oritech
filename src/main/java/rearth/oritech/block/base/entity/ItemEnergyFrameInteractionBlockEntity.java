@@ -1,6 +1,7 @@
 package rearth.oritech.block.base.entity;
 
 import net.fabricmc.fabric.api.screenhandler.v1.ExtendedScreenHandlerFactory;
+import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
 import net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntityType;
@@ -25,7 +26,9 @@ import rearth.oritech.util.*;
 import team.reborn.energy.api.EnergyStorage;
 
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 public abstract class ItemEnergyFrameInteractionBlockEntity extends FrameInteractionBlockEntity implements InventoryProvider, EnergyProvider, ExtendedScreenHandlerFactory, ScreenProvider, MachineAddonController {
@@ -48,6 +51,7 @@ public abstract class ItemEnergyFrameInteractionBlockEntity extends FrameInterac
     private final List<BlockPos> connectedAddons = new ArrayList<>();
     private final List<BlockPos> openSlots = new ArrayList<>();
     private BaseAddonData addonData = MachineAddonController.DEFAULT_ADDON_DATA;
+    private final Map<ServerPlayerEntity, GuiSnapshot> guiSnapshots = new IdentityHashMap<>();
     
     public ItemEnergyFrameInteractionBlockEntity(BlockEntityType<?> type, BlockPos pos, BlockState state) {
         super(type, pos, state);
@@ -119,6 +123,7 @@ public abstract class ItemEnergyFrameInteractionBlockEntity extends FrameInterac
         buf.writeBlockPos(this.getPos());
         buf.write(ADDON_UI_ENDEC, getUiData());
         buf.writeFloat(getCoreQuality());
+        sendGuiSnapshot(player);
     }
     
     @Nullable
@@ -188,8 +193,12 @@ public abstract class ItemEnergyFrameInteractionBlockEntity extends FrameInterac
     public void tick(World world, BlockPos pos, BlockState state, FrameInteractionBlockEntity blockEntity) {
         super.tick(world, pos, state, blockEntity);
         
-        if (!world.isClient && isActivelyViewed()) {
-            NetworkContent.MACHINE_CHANNEL.serverHandle(this).send(new NetworkContent.MachineFrameGuiPacket(pos, energyStorage.amount, energyStorage.capacity, getCurrentProgress()));
+        if (!world.isClient) {
+            var trackers = PlayerLookup.tracking(this);
+            guiSnapshots.keySet().removeIf(player -> !trackers.contains(player) || !isViewingGui(player));
+            for (var player : trackers) {
+                syncGuiToPlayer(player, false);
+            }
         }
     }
     
@@ -197,6 +206,49 @@ public abstract class ItemEnergyFrameInteractionBlockEntity extends FrameInterac
         var closestPlayer = Objects.requireNonNull(world).getClosestPlayer(pos.getX(), pos.getY(), pos.getZ(), 5, false);
         return closestPlayer != null && closestPlayer.currentScreenHandler instanceof BasicMachineScreenHandler handler && getPos().equals(handler.getBlockPos());
     }
+
+    private boolean isViewingGui(ServerPlayerEntity player) {
+        if (world == null || world.isClient || player.getWorld() != world || isRemoved() || world.getBlockEntity(pos) != this)
+            return false;
+        return player.currentScreenHandler instanceof BasicMachineScreenHandler handler && handler.isViewing(this);
+    }
+
+    /** Sends a fresh snapshot when Fabric has installed the newly opened menu. */
+    public void sendGuiSnapshot(ServerPlayerEntity player) {
+        syncGuiToPlayer(player, true);
+    }
+
+    private void syncGuiToPlayer(ServerPlayerEntity player, boolean force) {
+        if (!isViewingGui(player)) {
+            guiSnapshots.remove(player);
+            return;
+        }
+        var menu = player.currentScreenHandler;
+        var energy = energyStorage.amount;
+        var capacity = energyStorage.capacity;
+        var progress = getCurrentProgress();
+        var previous = guiSnapshots.get(player);
+        if (!force && previous != null && previous.menu == menu && previous.energy == energy
+          && previous.capacity == capacity && previous.progress == progress)
+            return;
+
+        NetworkContent.MACHINE_CHANNEL.serverHandle(player).send(new NetworkContent.MachineFrameGuiPacket(pos, energy, capacity, progress));
+        guiSnapshots.put(player, new GuiSnapshot(menu, energy, capacity, progress));
+    }
+
+    @Override
+    public void markRemoved() {
+        guiSnapshots.clear();
+        super.markRemoved();
+    }
+
+    @Override
+    public void setWorld(World world) {
+        if (this.world != world) guiSnapshots.clear();
+        super.setWorld(world);
+    }
+
+    private record GuiSnapshot(ScreenHandler menu, long energy, long capacity, int progress) {}
     
     @Override
     public SimpleInventory getInventoryForAddon() {

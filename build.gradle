@@ -124,6 +124,37 @@ java {
     targetCompatibility = JavaVersion.VERSION_17
 }
 
+// Compile the actual GUI sync/open/menu methods against small platform doubles.
+// remapJar separately checks these same sources against Minecraft and Fabric.
+sourceSets {
+    frameGuiVerification {
+        java.srcDir 'src/frameGuiVerification/java'
+    }
+}
+
+tasks.named('compileFrameGuiVerificationJava', JavaCompile) {
+    source files(
+        'src/main/java/rearth/oritech/block/base/entity/ItemEnergyFrameInteractionBlockEntity.java',
+        'src/main/java/rearth/oritech/client/ui/BasicMachineScreenHandler.java',
+        'src/main/java/rearth/oritech/client/ui/InventoryProxyScreenHandler.java',
+        'src/main/java/rearth/oritech/block/entity/machines/addons/InventoryProxyAddonBlockEntity.java',
+        'src/main/java/rearth/oritech/block/entity/machines/interaction/PlacerBlockEntity.java'
+    )
+}
+
+tasks.register('verifyFrameGuiSync', JavaExec) {
+    group = 'verification'
+    description = 'Executes production frame GUI sync and menu opening methods with platform doubles.'
+    dependsOn tasks.named('compileFrameGuiVerificationJava')
+    classpath = sourceSets.frameGuiVerification.runtimeClasspath
+    mainClass = 'rearth.oritech.verification.FrameGuiSyncVerification'
+    maxHeapSize = '128m'
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('verifyFrameGuiSync')
+}
+
 jar {
     from("LICENSE.md") {
         rename { "${it}_${project.base.archivesName.get()}" }

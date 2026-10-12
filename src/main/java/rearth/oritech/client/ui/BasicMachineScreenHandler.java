@@ -125,4 +125,8 @@ public class BasicMachineScreenHandler extends ScreenHandler {
     public @NotNull BlockPos getBlockPos() {
         return blockPos;
     }
+
+    public boolean isViewing(BlockEntity entity) {
+        return blockEntity == entity;
+    }
 }
