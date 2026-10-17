@@ -235,60 +235,15 @@ public class LaserArmBlockEntity extends BlockEntity implements GeoBlockEntity, 
     
     // returns the first block in an X*X*X cube, from the outside in
     private ArrayDeque<BlockPos> findNextAreaBlockTarget(BlockPos center, int scanDist) {
-        
-        var targets = new ArrayList<BlockPos>();
-        
-        for (int x = -scanDist; x < scanDist; x++) {
-            for (int y = -scanDist; y < scanDist; y++) {
-                for (int z = -scanDist; z < scanDist; z++) {
-                    var pos = center.add(x, y, z);
-                    if (!canPassThrough(world.getBlockState(pos)) && !center.equals(pos))
-                        targets.add(pos);
-                }
-            }
-        }
-        
-        targets.sort(Comparator.comparingInt(pos::getManhattanDistance));
-        return new ArrayDeque<>(targets);
+        return LaserTargetSearch.collectArea(center, scanDist, pos,
+          target -> canPassThrough(world.getBlockState(target)));
     }
     
     private BlockPos basicRaycast(Vec3d from, Vec3d direction, int range) {
-        
-        var searchOffset = 0.45;
-        
-        for (float i = 0; i < range; i += 0.3f) {
-            var to = from.add(direction.multiply(i));
-            var targetBlockPos = BlockPos.ofFloored(to.add(0, 0.3f, 0));
-            var targetState = world.getBlockState(targetBlockPos);
-            if (!canPassThrough(targetState)) return targetBlockPos;
-            
-            var offsetTop = to.add(0, -searchOffset, 0);
-            targetBlockPos = BlockPos.ofFloored(offsetTop);
-            targetState = world.getBlockState(targetBlockPos);
-            if (!canPassThrough(targetState)) return targetBlockPos;
-            
-            var offsetLeft = to.add(-searchOffset, 0, 0);
-            targetBlockPos = BlockPos.ofFloored(offsetLeft);
-            targetState = world.getBlockState(targetBlockPos);
-            if (!canPassThrough(targetState)) return targetBlockPos;
-            
-            var offsetRight = to.add(searchOffset, 0, 0);
-            targetBlockPos = BlockPos.ofFloored(offsetRight);
-            targetState = world.getBlockState(targetBlockPos);
-            if (!canPassThrough(targetState)) return targetBlockPos;
-            
-            var offsetFront = to.add(0, 0, searchOffset);
-            targetBlockPos = BlockPos.ofFloored(offsetFront);
-            targetState = world.getBlockState(targetBlockPos);
-            if (!canPassThrough(targetState)) return targetBlockPos;
-            
-            var offsetBack = to.add(0, 0, -searchOffset);
-            targetBlockPos = BlockPos.ofFloored(offsetBack);
-            targetState = world.getBlockState(targetBlockPos);
-            if (!canPassThrough(targetState)) return targetBlockPos;
-        }
-        
-        return null;
+        return LaserTargetSearch.raycast(from, direction, range,
+          target -> canPassThrough(world.getBlockState(target)),
+          target -> world instanceof ServerWorld serverWorld
+            && serverWorld.getChunkManager().getWorldChunk(target.getX() >> 4, target.getZ() >> 4) == null);
     }
     
     private boolean canPassThrough(BlockState state) {

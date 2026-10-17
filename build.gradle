@@ -133,6 +133,26 @@ sourceSets {
     inventoryVerification {
         java.srcDir 'src/inventoryVerification/java'
     }
+    laserVerification {
+        java.srcDir 'src/laserVerification/java'
+        compileClasspath += sourceSets.main.output + configurations.compileClasspath
+        runtimeClasspath += sourceSets.main.output + configurations.runtimeClasspath
+    }
+}
+
+tasks.register('verifyLaserTargetSearch', JavaExec) {
+    group = 'verification'
+    description = 'Checks exact laser target equivalence and lookup reductions against the original search.'
+    dependsOn tasks.named('compileLaserVerificationJava')
+    classpath = sourceSets.laserVerification.runtimeClasspath
+    mainClass = 'rearth.oritech.verification.LaserTargetSearchVerification'
+    maxHeapSize = '256m'
+    workingDir = layout.buildDirectory.dir('laserVerificationRun').get().asFile
+    doFirst { workingDir.mkdirs() }
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('verifyLaserTargetSearch')
 }
 
 tasks.named('compileFrameGuiVerificationJava', JavaCompile) {
